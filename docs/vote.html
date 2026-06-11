@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Live Poll — Vote</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="poll-common.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg, #0f172a); color: var(--text, #f1f5f9); min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; padding: 24px 16px;
+  }
+  .badge { font-size: 12px; letter-spacing: 2px; color: var(--muted, #94a3b8); text-transform: uppercase; }
+  #session { color: var(--accent, #38bdf8); font-weight: 700; }
+  h1 { font-size: 22px; margin: 18px 0 24px; text-align: center; line-height: 1.35; max-width: 480px; }
+  .options { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 12px; }
+  button.opt {
+    width: 100%; padding: 16px; font-size: 17px; font-weight: 600; text-align: left;
+    color: var(--text, #f1f5f9); background: var(--panel, #1e293b);
+    border: 2px solid var(--panel, #334155); border-radius: 12px;
+    cursor: pointer; transition: all .15s;
+  }
+  button.opt:active { transform: scale(.98); }
+  button.opt.selected { border-color: var(--accent, #38bdf8); }
+  button.opt:disabled { opacity: .55; cursor: default; }
+  button.opt.selected:disabled { opacity: 1; }
+  #status { margin-top: 24px; font-size: 15px; color: var(--muted, #94a3b8); text-align: center; min-height: 22px; }
+  #status.ok { color: #4ade80; }
+  #status.err { color: #f87171; }
+  .waiting { margin-top: 40px; text-align: center; color: var(--muted, #94a3b8); font-size: 16px; line-height: 1.6;
+    max-width: 420px; }
+  .pulse { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent, #38bdf8);
+    margin-right: 8px; animation: pulse 1.2s infinite ease-in-out; }
+  @keyframes pulse { 0%,100% { opacity: .3 } 50% { opacity: 1 } }
+</style>
+</head>
+<body>
+  <div class="badge">Live poll &nbsp;·&nbsp; session <span id="session">—</span></div>
+  <div id="app"></div>
+  <div id="status"></div>
+
+<script>
+  const sessionCode = pollCleanCode(new URLSearchParams(location.search).get("s"));
+  document.getElementById("session").textContent = sessionCode || "?";
+  const deviceId = pollDeviceId();
+
+  const app = document.getElementById("app");
+  const statusEl = document.getElementById("status");
+  let activeId = null, poll = null, myVote = null; // myVote = {c, v} from Firebase
+
+  function setStatus(msg, cls) { statusEl.textContent = msg || ""; statusEl.className = cls || ""; }
+  function renderWaiting(msg) {
+    app.innerHTML = '<div class="waiting"><span class="pulse"></span>' + msg + "</div>";
+    setStatus("");
+  }
+
+  function render() {
+    if (!activeId || !poll) {
+      renderWaiting("Waiting for the presenter to show a question…");
+      return;
+    }
+    const votedThisRound = myVote && myVote.v === poll.version;
+    let html = "<h1>" + pollEscapeHtml(poll.question) + "</h1><div class='options'>";
+    (poll.options || []).forEach((opt, i) => {
+      const sel = votedThisRound && myVote.c === i ? " selected" : "";
+      const dis = (votedThisRound || !poll.open) ? " disabled" : "";
+      html += "<button class='opt" + sel + "'" + dis + " onclick='vote(" + i + ")'>" +
+              pollEscapeHtml(opt) + "</button>";
+    });
+    app.innerHTML = html + "</div>";
+
+    if (votedThisRound) setStatus("✓ Vote recorded — watch the screen!", "ok");
+    else if (!poll.open) setStatus("Voting is closed for this question.", "err");
+    else setStatus("Tap an answer to vote");
+  }
+
+  function vote(choice) {
+    if (!poll || !poll.open || (myVote && myVote.v === poll.version)) return;
+    firebase.database()
+      .ref("sessions/" + sessionCode + "/votes/" + activeId + "/" + deviceId)
+      .set({ c: choice, v: poll.version })
+      .catch(() => setStatus("Connection problem — try again.", "err"));
+  }
+
+  // ---- live listeners ----
+  if (!sessionCode) {
+    renderWaiting("Missing session code — scan the QR code on the presentation screen.");
+  } else if (!pollFirebaseReady()) {
+    renderWaiting("This poll isn't set up yet (Firebase config missing).");
+  } else {
+    const db = firebase.database();
+    let pollRef = null, voteRef = null;
+
+    // match the presentation's color theme
+    db.ref("sessions/" + sessionCode + "/theme").on("value", (s) => pollApplyTheme(s.val()));
+
+    db.ref("sessions/" + sessionCode + "/active").on("value", (snap) => {
+      const id = snap.val();
+      if (id === activeId) return;
+      activeId = id; poll = null; myVote = null;
+      if (pollRef) pollRef.off();
+      if (voteRef) voteRef.off();
+      if (!activeId) { render(); return; }
+
+      pollRef = db.ref("sessions/" + sessionCode + "/polls/" + activeId);
+      pollRef.on("value", (s) => { poll = s.val(); render(); });
+
+      voteRef = db.ref("sessions/" + sessionCode + "/votes/" + activeId + "/" + deviceId);
+      voteRef.on("value", (s) => { myVote = s.val(); render(); });
+    });
+    renderWaiting("Connecting…");
+  }
+</script>
+</body>
+</html>
