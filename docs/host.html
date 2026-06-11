@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live Poll — Presenter Console</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="poll-common.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f172a; color: #f1f5f9; padding: 32px 16px; display: flex;
+    flex-direction: column; align-items: center; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #94a3b8; font-size: 14px; margin-bottom: 24px; text-align: center; }
+  .joinBox { display: flex; gap: 8px; margin-bottom: 28px; }
+  .joinBox input { padding: 10px; font-size: 16px; border-radius: 8px; border: 1px solid #334155;
+    background: #1e293b; color: #f1f5f9; text-transform: uppercase; width: 170px; }
+  .joinBox button, .card button { padding: 8px 14px; font-size: 13px; font-weight: 600;
+    background: #0284c7; color: white; border: none; border-radius: 8px; cursor: pointer; }
+  .card { width: 100%; max-width: 560px; background: #1e293b; border: 1px solid #334155;
+    border-radius: 12px; padding: 18px; margin-bottom: 14px; }
+  .card.active { border-color: #38bdf8; }
+  .card h3 { font-size: 16px; margin: 4px 0 8px; }
+  .tag { font-size: 11px; color: #94a3b8; letter-spacing: 1px; text-transform: uppercase; }
+  .tag .on { color: #4ade80; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; font-size: 14px; }
+  .row .label { flex: 1; }
+  .row .n { color: #38bdf8; font-weight: 700; }
+  .btns { margin-top: 12px; display: flex; gap: 8px; }
+  .btns .danger { background: #b91c1c; }
+  .btns .gray { background: #475569; }
+  #empty { color: #64748b; font-size: 14px; max-width: 420px; text-align: center; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <h1>🗳️ Presenter Console</h1>
+  <div class="sub">Live view of every question in a session — open/close voting or reset counts.<br/>
+    Open this on a second screen or your phone while presenting.</div>
+  <div class="joinBox" id="authBox" style="display:none;">
+    <input id="authEmail" type="email" placeholder="presenter email" style="text-transform:none;" />
+    <input id="authPass" type="password" placeholder="password" style="text-transform:none;" />
+    <button onclick="signIn()">Sign in</button>
+  </div>
+  <div class="sub" id="authMsg"></div>
+  <div class="joinBox">
+    <input id="codeInput" placeholder="SESSION CODE" maxlength="8" />
+    <button onclick="join()">Watch session</button>
+  </div>
+  <div id="polls"><div id="empty">Enter the session code shown in the poll widget on your slide.</div></div>
+
+<script>
+  let code = pollCleanCode(new URLSearchParams(location.search).get("s"));
+  let sessRef = null;
+  let user = null;
+  const configured = pollFirebaseReady();
+
+  if (configured) {
+    firebase.auth().onAuthStateChanged((u) => {
+      user = u;
+      document.getElementById("authBox").style.display = user ? "none" : "flex";
+      document.getElementById("authMsg").textContent = user
+        ? "Signed in as " + user.email
+        : "Sign in to use the control buttons (viewing works without it).";
+    });
+  }
+
+  function signIn() {
+    firebase.auth().signInWithEmailAndPassword(
+      document.getElementById("authEmail").value.trim(),
+      document.getElementById("authPass").value
+    ).catch((e) => { document.getElementById("authMsg").textContent = "Sign-in failed: " + e.code; });
+  }
+
+  function join() {
+    const v = pollCleanCode(document.getElementById("codeInput").value);
+    if (v) { code = v; history.replaceState(null, "", "?s=" + v); connect(); }
+  }
+
+  function connect() {
+    if (!configured) {
+      document.getElementById("polls").innerHTML =
+        "<div id='empty'>Firebase isn't configured yet — see README step 1.</div>";
+      return;
+    }
+    if (sessRef) sessRef.off();
+    sessRef = firebase.database().ref("sessions/" + code);
+    sessRef.on("value", (snap) => render(snap.val() || {}));
+  }
+
+  function setOpen(pollId, open) {
+    firebase.database().ref("sessions/" + code + "/polls/" + pollId + "/open").set(open);
+  }
+
+  async function reset(pollId) {
+    const ref = firebase.database().ref("sessions/" + code + "/polls/" + pollId + "/version");
+    const snap = await ref.once("value");
+    await ref.set((snap.val() || 0) + 1); // new round — everyone can vote again
+    await firebase.database().ref("sessions/" + code + "/votes/" + pollId).remove();
+  }
+
+  function render(session) {
+    const box = document.getElementById("polls");
+    const polls = session.polls || {};
+    const votes = session.votes || {};
+    // only render well-formed poll ids — blocks script injection via crafted db keys
+    const ids = Object.keys(polls).filter(id => /^[A-Za-z0-9_-]+$/.test(id)).sort((a, b) =>
+      (parseInt(a.replace("slide", "")) || 0) - (parseInt(b.replace("slide", "")) || 0));
+    if (!ids.length) {
+      box.innerHTML = "<div id='empty'>No questions yet — save one in the slide widget.</div>";
+      return;
+    }
+    box.innerHTML = ids.map(id => {
+      const p = polls[id];
+      const { counts, total } = pollCountVotes(votes[id], p);
+      const isActive = session.active === id;
+      return "<div class='card" + (isActive ? " active" : "") + "'>" +
+        "<div class='tag'>" + pollEscapeHtml(id) +
+          (isActive ? " · <span class='on'>LIVE NOW</span>" : "") +
+          (p.open ? "" : " · closed") + "</div>" +
+        "<h3>" + pollEscapeHtml(p.question) + "</h3>" +
+        (p.options || []).map((o, i) =>
+          "<div class='row'><span class='label'>" +
+          (p.correct === i ? "<span style='color:#4ade80'>✓ </span>" : "") +
+          pollEscapeHtml(o) + "</span><span class='n'>" +
+          counts[i] + "</span></div>").join("") +
+        "<div class='row'><span class='label'><b>Total</b></span><span class='n'>" + total + "</span></div>" +
+        "<div class='btns'>" +
+          (p.open
+            ? "<button class='gray' onclick=\"setOpen('" + id + "',false)\">Close voting</button>"
+            : "<button onclick=\"setOpen('" + id + "',true)\">Open voting</button>") +
+          "<button class='danger' onclick=\"reset('" + id + "')\">Reset votes</button>" +
+        "</div></div>";
+    }).join("");
+  }
+
+  if (code) { document.getElementById("codeInput").value = code; connect(); }
+</script>
+</body>
+</html>
