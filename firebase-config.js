@@ -1,10 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// PASTE YOUR FIREBASE CONFIG HERE  (see README step 1)
-//
-// In the Firebase console: Project settings (gear icon) → General →
-// "Your apps" → Web app → SDK setup and configuration → Config.
-// Copy the object it shows you over the placeholder below.
-// ─────────────────────────────────────────────────────────────────────────────
 window.FIREBASE_CONFIG = {
   apiKey: "AIzaSyC_bJ6CWFGrnleXIKhz-ck_yCQ4ZOmpsA0",
   authDomain: "powerpoint-voting.firebaseapp.com",
