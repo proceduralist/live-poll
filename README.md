@@ -30,51 +30,43 @@ connected phone automatically switches to that slide's question.
 | `docs/host.html` | Optional presenter console (open/close voting, reset votes remotely) |
 | `docs/index.html` | Simple landing page linking to the three pages above |
 | `docs/poll-common.js` | Helper code shared by all pages |
-| `docs/firebase-config.js` | Where you paste your Firebase keys (step 1) |
+| `docs/supabase-config.js` | Where you paste your Supabase project URL + key (step 1) |
+| `supabase-schema.sql` | The database schema — run once when creating a Supabase project |
 
-No server to run — pages are hosted free on GitHub Pages, votes go through Firebase
-(free tier). To copy this setup, you only need a Google account (Firebase) and a
-GitHub account.
+No server to run — pages are hosted free on GitHub Pages, votes go through Supabase
+(free tier). To copy this setup, you only need a Supabase account and a GitHub account.
 
 ---
 
 ## Setup (one time, ~25 minutes)
 
-### Step 1 — Create a free Firebase database
+### Step 1 — Create a free Supabase database
 
-1. Go to [console.firebase.google.com](https://console.firebase.google.com) and sign in with a Google account.
-2. Click **Create a project** (or "Add project"). Name it anything, e.g. `live-poll`. You can turn off Google Analytics. Click through to create it.
-3. In the left menu: **Build → Realtime Database → Create Database**. Pick the location closest to you, and choose **Start in test mode**.
-4. Go to the **Rules** tab of the database and replace the rules with this, then click **Publish**:
-   ```json
-   {
-     "rules": {
-       "sessions": {
-         ".read": true,
-         ".write": true
-       },
-       "users": {
-         "$uid": {
-           ".read": "auth != null && auth.uid === $uid",
-           ".write": "auth != null && auth.uid === $uid"
-         }
-       }
-     }
-   }
-   ```
+1. Go to [supabase.com](https://supabase.com), sign in (GitHub or email), and click
+   **New project**. Name it anything, e.g. `live-poll`, pick the region closest to you,
+   and set a database password (you won't need it for the add-in — it's for direct
+   database access; store it somewhere safe). The free plan is fine.
+2. **Create the tables:** in the left menu open **SQL Editor**, paste the entire
+   contents of `supabase-schema.sql` from this folder, and click **Run**. This creates
+   the tables, the security rules (Row Level Security), the vote-validity checks, and
+   turns on live updates. You only ever do this once per project.
+3. **Auth settings:** in **Authentication → Sign In / Up**, the **Email** provider is
+   already enabled — that's all the add-in needs. **Recommended:** turn **off**
+   "Confirm email". Voters sometimes create accounts mid-talk to track their answers,
+   and with confirmation on they'd have to leave the poll to click an email link first.
+4. **Create your presenter account:** in **Authentication → Users**, click
+   **Add user → Create new user** and enter the email + password you'll use to sign in
+   inside the PowerPoint widget. (Voters who want to track their results can create
+   their own accounts directly on the voting page — you don't make accounts for them.)
+5. **Copy your keys:** in **Project Settings → API Keys**, copy the **Project URL** and
+   the **publishable key** (it starts with `sb_publishable_`). Open
+   `docs/supabase-config.js` in this folder and paste them over the existing values.
+   These two values are safe to publish — they only identify the project; the security
+   rules from step 2 are what control access.
 
-   The `sessions` section is deliberately open so voters can vote without accounts —
-   fine for live polling, but don't store anything sensitive. The `users` section is
-   required for the **My results** page: signed-in voters' answer history is stored
-   under `users/{their-id}/answers`, readable only by them.
-5. **Enable sign-in:** in the left menu, **Build → Authentication → Get started →
-   Sign-in method**, enable **Email/Password** (just the first toggle), and save.
-6. **Create your presenter account:** on the Authentication **Users** tab, click
-   **Add user** and enter the email + password you'll use to sign in inside the
-   PowerPoint widget. (Voters who want to track their results can create their own
-   accounts directly on the voting page — you don't make accounts for them.)
-7. Click the **gear icon → Project settings**. Under "Your apps", click the **`</>`** (web) icon to register a web app. Name it `live-poll`. Skip hosting. It shows you a `firebaseConfig` code block.
-8. Open `docs/firebase-config.js` in this folder and replace the existing values with the ones Firebase showed you. **Make sure `databaseURL` is included** — if Firebase's snippet doesn't show it, copy it from the Realtime Database page (it looks like `https://live-poll-xxxxx-default-rtdb.firebaseio.com`). These keys are safe to publish — Firebase web keys only identify the project; the rules above are what control access.
+> **Coming from the old Firebase version?** The pages, manifest, and workflow are
+> unchanged — only the database moved. Presenter and voter accounts need to be created
+> once in Supabase (passwords can't be copied between services).
 
 ### Step 2 — Put this folder on GitHub Pages
 
@@ -116,13 +108,13 @@ Re-upload the fixed `manifest.xml` to GitHub too (not required for the add-in to
 ## Using it
 
 1. **Save the file first.** The session code (and QR code) comes from the file's identity — an unsaved deck gives every slide its own temporary code.
-2. **Sign in** inside the widget with the presenter account from step 1.6. You only need to do this when PowerPoint forgets the session (it usually remembers).
-3. **Name the session.** The **Session name** field at the top names the whole presentation (it defaults to the filename). Voters see it on their phones and it becomes the session's title on their **My results** page — pick something memorable like the talk's title.
-4. **Build:** insert Live Poll on any slide you want a question on (one question per slide). Type the question and answer choices. To make it a quiz question, pick the **Correct answer** from the dropdown — leave it on "No correct answer" for a plain poll. Click **Save question**. Resize/position the box like any other object. Pick a **Theme** once — it applies everywhere.
+2. **Sign in** inside the widget with the presenter account from step 1.4. You only need to do this when PowerPoint forgets the session (it usually remembers).
+3. **Name the session.** Click the **⚙ gear** near the widget's top-right corner to open session settings. The **Session name** field names the whole presentation (it defaults to the filename). Voters see it on their phones and it becomes the session's title on their **My results** page — pick something memorable like the talk's title. The theme picker lives here too.
+4. **Build:** insert Live Poll on any slide you want a question on (one question per slide). Type the question and answer choices. To make it a quiz question, pick the **Correct answer** from the dropdown — leave it on "No correct answer" for a plain poll. Click **Save question**. Resize/position the box like any other object.
 5. **Present:** start the slideshow. When a poll slide appears, the box turns into a live bar chart with a QR code. The audience scans it once — after that, their phones follow along automatically as you move between poll slides.
 6. **Reveal the answer:** once you're happy with the responses, click the **Reveal answer** button on the slide itself (next to the vote total). Voting closes, the correct choice gets a ✓ on screen, and every phone shows whether its vote was right. Click again (**Reopen voting**) to undo. On plain polls the button reads **Close voting** instead.
-7. **Re-presenting to a new crowd?** Back in edit mode, click **🔄 New audience — reset all votes** at the bottom of any poll widget (click twice to confirm). Every count returns to 0, voting reopens, revealed answers are hidden again, and everyone can vote once more. Questions are untouched.
-8. **Control remotely (optional):** open `https://YOUR-URL/host.html?s=SESSIONCODE` on your phone or a second screen to open/close voting or reset individual questions. The session code is shown in the widget while editing.
+7. **Re-presenting to a new crowd?** Back in edit mode, open the **⚙ gear** settings in any poll widget and click **🔄 New audience — reset all votes** (click twice to confirm). Every count in the presentation returns to 0, voting reopens, revealed answers are hidden again, and everyone can vote once more. Questions are untouched.
+8. **Control remotely (optional):** open `https://YOUR-URL/host.html?s=SESSIONCODE` on your phone or a second screen to open/close voting or reset individual questions. The session code is shown in the widget while editing. Sign in with the presenter account to use the control buttons — the database ignores control commands from anyone else.
 
 ## For the audience
 
@@ -137,15 +129,17 @@ Re-upload the fixed `manifest.xml` to GitHub too (not required for the add-in to
 - **Votes are kept between showings** — closing PowerPoint doesn't clear them. Use **New audience** before re-presenting (see above).
 - **Questions are saved inside the .pptx**, so the deck works on its own — and the same deck always keeps the same QR code. (Renaming or moving the file changes the session code.)
 - **A re-vote replaces the old answer** in a voter's history — each question keeps one entry per session, so a reset round overwrites what that voter had before.
-- **Privacy:** votes are anonymous counts (signed-in voters' history is private to them). The database rules let anyone read/write poll data — fine for live polling, but don't store anything sensitive in it.
+- **Late votes bounce.** The database itself rejects votes cast after voting closes (or against an old round) — not just the phone screen.
+- **Privacy:** votes are anonymous counts (signed-in voters' history is private to them, enforced by Row Level Security). Anyone can read poll questions and counts — fine for live polling, but don't put anything sensitive in a question. Only your presenter account can edit questions, close voting, or reset counts.
 
 ## Troubleshooting
 
-- **"Firebase isn't configured yet"** → re-check step 1.8, then re-upload `firebase-config.js` to GitHub.
-- **"Sign-in failed"** → the presenter account must exist in Firebase **Authentication → Users**, and Email/Password sign-in must be enabled (steps 1.5–1.6).
+- **"Supabase isn't configured yet"** → re-check step 1.5, then re-upload `supabase-config.js` to GitHub.
+- **"Sign-in failed"** → the presenter account must exist in Supabase **Authentication → Users**. If you left "Confirm email" on in step 1.3, the account must also be confirmed — dashboard-created users are confirmed automatically.
 - **Add-in doesn't appear in PowerPoint** → confirm the manifest is in the `wef` folder (step 4.1) and fully restart PowerPoint.
 - **Blank box on the slide** → your GitHub Pages site may not be live yet (step 2.5), or the manifest URLs still have the old address.
 - **A feature you just added doesn't show up** → the files on GitHub are stale. Re-upload the changed `docs` files and wait a minute; also try removing and re-inserting the widget (PowerPoint caches pages).
-- **Phones don't update** → make sure the slideshow is running (questions only go "live" in slideshow mode) and the phone has internet.
+- **Phones don't update** → make sure the slideshow is running (questions only go "live" in slideshow mode) and the phone has internet. If it still doesn't move, re-run `supabase-schema.sql` — its last line is what turns on live updates.
+- **"This session belongs to a different presenter account"** → the deck's session code was first used by another account. Sign in with that account, or re-save the deck under a new filename (new file = new session code).
 - **Session name doesn't appear on results pages** → open the deck and sign in once in the widget; the name uploads automatically.
-- **My results page can't load history** → the database rules must include the `users` section from step 1.4; re-publish them.
+- **A question shows on phones before you reach its slide (or the wrong question appears)** → that poll box isn't linked to its own slide. Each box shows the slide it's linked to in its footer (`Slide: s412`) while editing — click through your poll slides and check they're all different. To link a box, click once inside it in edit mode, then save the deck (⌘S); a box that says *not linked yet* stays silent during the show and prints a reminder on its slide. This is also why PowerPoint can't tell a copied poll box apart from the original: **duplicating a poll slide copies its link too**, so click inside the copy once to re-link it.
